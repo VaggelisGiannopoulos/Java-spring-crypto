@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-SimulatorApplication<simulator>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "com.trading_simulator_spring.simulator.SimulatorApplication",
+            "projectName": "simulator",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}
