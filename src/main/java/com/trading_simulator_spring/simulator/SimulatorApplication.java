@@ -1,17 +1,14 @@
 package com.trading_simulator_spring.simulator;
 
 import java.util.ArrayList;
+import java.util.InputMismatchException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,81 +21,103 @@ import java.time.format.DateTimeFormatter;
 
 public class SimulatorApplication {
 
-	public static void main(String[] args) throws IOException, InterruptedException {
+	public static void main(String[] args) {
 		try (Scanner scanner = new Scanner(System.in)) {
-			HttpClient client = HttpClient.newHttpClient();
 
 			while (true) {
 				System.out.print("=============================================================\n");
 				System.out.print("Enter a coin symbol : ");
-				String input = scanner.nextLine();
-				if (input.trim().isEmpty() || input.matches("\\d+")) {
-					System.out.println("Input cannot be empty. Please enter a coin symbol.");
+				String coinSymbol = scanner.nextLine();
+
+				// Fetch real-time price for coinSymbol using Binance API
+				double currentPrice = fetchCurrentPrice(coinSymbol);
+
+				// If there was an error fetching the price, continue to the next iteration
+				if (currentPrice == 0.0) {
 					continue;
 				}
-				HttpRequest request = HttpRequest.newBuilder()
-						.uri(URI.create("https://api.binance.com/api/v3/klines?symbol=" + input.toUpperCase()
-								+ "USDT&interval=" + "4h"))
-						.build();
 
-				HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-				String responseBody = response.body();
-				if (responseBody.startsWith("{")) {
-					JSONObject jsonObject = new JSONObject(responseBody);
-					if (jsonObject.has("code")) {
-						System.out.println(jsonObject.getString("msg"));
-						continue;
-					}
-				}
-
-				String coinSymbol = input.split(" ")[0];
-				String interval = "4h"; // default interval
-
-				Pattern pattern = Pattern.compile("([a-zA-Z]+)\\s*(1s|1m|3m|5m|15m|30m|1h|4h|6h|8h|12h|1d|3d|1w)?");
-				Matcher matcher = pattern.matcher(input);
-				if (matcher.matches()) {
-					coinSymbol = matcher.group(1);
-					if (matcher.group(2) != null) {
-						interval = matcher.group(2);
-					}
-				}
+				System.out.println("Current price of " + coinSymbol + ": $" + currentPrice);
 
 				while (true) {
 					System.out.print("Enter the number of days to simulate: ");
-					String input2 = scanner.nextLine();
-					if (input2.trim().isEmpty()) {
-						System.out.println("Input cannot be empty. Please enter a number.");
-						continue;
-					}
-					if (!input2.matches("\\d+")) {
-						System.out.println("Invalid input. Please enter a number.");
-						continue;
-					}
-					int days = Integer.parseInt(input2);
+					try {
+						int days = scanner.nextInt();
+						scanner.nextLine(); // consume the newline
 
-					for (int i = 1; i <= days; i++) {
-						// Simulate the price for each day
-						System.out.print("-------------------------------------------------------------\n");
-						System.out.println("Day " + i + ": ");
-						simulatePrice(coinSymbol, i, interval);
+						System.out.print("Do you want the indicators data? (yes/no): ");
+						String indicatorsData = scanner.nextLine().toLowerCase();
+
+						if (indicatorsData.equals("yes") || indicatorsData.equals("y")) {
+							for (int i = 1; i <= days; i++) {
+								// Simulate the price with indicators for each day
+								simulatePriceWithIndicators(coinSymbol, i);
+							}
+						} else {
+							for (int i = 1; i <= days; i++) {
+								// Simulate the price for each day
+								System.out.print("-------------------------------------------------------------\n");
+								System.out.println("Day " + i + ": ");
+								simulatePrice(coinSymbol, i);
+							}
+						}
+						break; // exit the inner loop if the number of days was entered correctly
+					} catch (InputMismatchException e) {
+						System.out.println("Invalid input. Please enter a number.");
+						scanner.nextLine(); // consume the invalid input
 					}
-					break; // exit the loop if the number of days was entered correctly
 				}
 			}
 		}
 	}
 
-	private static void simulatePrice(String coinSymbol, int daysAgo, String interval) {
+	private static void simulatePriceWithIndicators(String coinSymbol, int daysAgo) {
 		HttpClient client = HttpClient.newHttpClient();
 		long endTime = Instant.now().minus(Duration.ofDays(daysAgo)).getEpochSecond() * 1000;
 		long startTime = endTime - Duration.ofDays(1).toMillis();
 		HttpRequest request = HttpRequest.newBuilder()
 				.uri(URI.create("https://api.binance.com/api/v3/klines?symbol=" + coinSymbol.toUpperCase()
-						+ "USDT&interval=" + interval + "&startTime=" + startTime + "&endTime=" + endTime))
+						+ "USDT&interval=1h&startTime=" + startTime + "&endTime=" + endTime))
+				.build();
+
+		try {
+			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+			JSONArray jsonArray = new JSONArray(response.body());
+			for (int i = 0; i < jsonArray.length(); i++) {
+				JSONArray candlestick = jsonArray.getJSONArray(i);
+				ZonedDateTime date = Instant.ofEpochMilli(candlestick.getLong(0)).atZone(ZoneId.systemDefault());
+				DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss");
+				System.out.println("-------------------------------------------------------------");
+				System.out.println("Date: " + date.format(formatter));
+				System.out.println("Open time: " + candlestick.getLong(0));
+				System.out.println("Open price: " + candlestick.getDouble(1));
+				System.out.println("High price: " + candlestick.getDouble(2));
+				System.out.println("Low price: " + candlestick.getDouble(3));
+				System.out.println("Close price: " + candlestick.getDouble(4));
+				System.out.println("Volume: " + candlestick.getDouble(5));
+				System.out.println("Close time: " + candlestick.getLong(6));
+				System.out.println("Quote asset volume: " + candlestick.getDouble(7));
+				System.out.println("Number of trades: " + candlestick.getInt(8));
+				System.out.println("Taker buy base asset volume: " + candlestick.getDouble(9));
+				System.out.println("Taker buy quote asset volume: " + candlestick.getDouble(10));
+				System.out.println("Ignore: " + candlestick.getString(11));
+			}
+		} catch (Exception e) {
+			System.out.println(
+					"Error fetching historical data for " + coinSymbol + ". Please ensure the coin symbol is correct.");
+		}
+	}
+
+	private static void simulatePrice(String coinSymbol, int daysAgo) {
+		HttpClient client = HttpClient.newHttpClient();
+		long endTime = Instant.now().minus(Duration.ofDays(daysAgo)).getEpochSecond() * 1000;
+		long startTime = endTime - Duration.ofDays(1).toMillis();
+		HttpRequest request = HttpRequest.newBuilder()
+				.uri(URI.create("https://api.binance.com/api/v3/klines?symbol=" + coinSymbol.toUpperCase()
+						+ "USDT&interval=1d&startTime=" + startTime + "&endTime=" + endTime))
 				.build();
 
 		List<Map<String, String>> data = new ArrayList<>();
-		List<Double> closePrices = new ArrayList<>(); // Define closePrices here
 
 		try {
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -107,8 +126,7 @@ public class SimulatorApplication {
 				JSONArray candlestick = jsonArray.getJSONArray(i);
 				ZonedDateTime date = Instant.ofEpochMilli(candlestick.getLong(0)).atZone(ZoneId.systemDefault());
 				DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy");
-				double closePrice = candlestick.getDouble(4);
-				closePrices.add(closePrice);
+
 				Map<String, String> dayData = new LinkedHashMap<>();
 				dayData.put("Date", date.format(formatter));
 				dayData.put("Open time", String.valueOf(candlestick.getLong(0)));
@@ -132,44 +150,28 @@ public class SimulatorApplication {
 				}
 				System.out.println();
 			}
-			double rsi = calculateRSI(closePrices);
-			for (Map<String, String> dayData : data) {
-				dayData.put("RSI", String.valueOf(rsi));
-			}
 
 		} catch (Exception e) {
+			System.out.println(
+					"Error fetching historical data for " + coinSymbol + ". Please ensure the coin symbol is correct.");
 		}
-
 	}
 
-	private static double calculateRSI(List<Double> closePrices) {
-		int period = 14;
-		List<Double> gains = new ArrayList<>();
-		List<Double> losses = new ArrayList<>();
+	private static double fetchCurrentPrice(String coinSymbol) {
+		HttpClient client = HttpClient.newHttpClient();
+		HttpRequest request = HttpRequest.newBuilder()
+				.uri(URI.create(
+						"https://api.binance.com/api/v3/ticker/price?symbol=" + coinSymbol.toUpperCase() + "USDT"))
+				.build();
 
-		for (int i = 1; i < closePrices.size(); i++) {
-			double change = closePrices.get(i) - closePrices.get(i - 1);
-			gains.add(Math.max(0, change));
-			losses.add(Math.max(0, -change));
+		try {
+			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+			JSONObject json = new JSONObject(response.body());
+			return json.getDouble("price");
+		} catch (Exception e) {
+			System.out
+					.println("Error fetching price for " + coinSymbol);
+			return 0.0;
 		}
-
-		double avgGain = gains.stream().limit(period).mapToDouble(n -> n).average().orElse(0);
-		double avgLoss = losses.stream().limit(period).mapToDouble(n -> n).average().orElse(0);
-
-		if (closePrices.size() <= period) {
-			return 0; // Return 0 if there are not enough close prices to calculate the RSI
-		}
-
-		for (int i = period; i < closePrices.size(); i++) {
-			double gain = gains.get(i);
-			double loss = losses.get(i);
-			avgGain = ((avgGain * (period - 1)) + gain) / period;
-			avgLoss = ((avgLoss * (period - 1)) + loss) / period;
-			double rs = (avgLoss == 0) ? 100 : avgGain / avgLoss;
-			double rsi = 100 - (100 / (1 + rs));
-			return rsi;
-		}
-
-		return 0; // This line is not necessary, but it's here to satisfy the Java compiler
 	}
 }
